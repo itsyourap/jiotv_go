@@ -2,9 +2,13 @@ package utils
 
 import (
 	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	_ "embed"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -495,12 +499,43 @@ func Logout() error {
 	return nil
 }
 
+//go:embed certs/ca-cert.pem
+var caCert []byte // Embeds the PEM file into the Go binary
+
+func loadCertsForJioFiber() (*x509.CertPool, error) {
+	// Create a new CertPool
+	caCertPool := x509.NewCertPool()
+
+	// Append the embedded CA certificate
+	if !caCertPool.AppendCertsFromPEM(caCert) {
+		return nil, fmt.Errorf("failed to append cert to pool")
+	}
+
+	return caCertPool, nil
+}
+
 // GetRequestClient create a HTTP client with proxy if given
 // Otherwise create a HTTP client without proxy
 // Returns a fasthttp.Client
 func GetRequestClient() *fasthttp.Client {
 	// The function shall return a fasthttp.client with proxy if given
 	proxy := config.Cfg.Proxy
+
+	// Load CA certs if running on JioFiber
+	var caCertPool *x509.CertPool
+
+	// Check if /pfrm2.0/firmVersion exists (Only available on JioFiber)
+	if _, err := os.Stat("/pfrm2.0/firmVersion"); errors.Is(err, os.ErrNotExist) {
+		// Not Running on JioFiber
+		caCertPool = nil
+	} else {
+		// Running on JioFiber
+		caCertPool, err = loadCertsForJioFiber()
+		if err != nil {
+			Log.Println(err)
+			return nil
+		}
+	}
 
 	if proxy != "" {
 		Log.Println("Using proxy: " + proxy)
@@ -521,6 +556,9 @@ func GetRequestClient() *fasthttp.Client {
 		Dial: fasthttp.DialFunc(func(addr string) (netConn net.Conn, err error) {
 			return fasthttp.DialTimeout(addr, 5*time.Second)
 		}),
+		TLSConfig: &tls.Config{
+			RootCAs: caCertPool,
+		},
 	}
 }
 
