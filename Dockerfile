@@ -10,6 +10,7 @@ COPY cmd ./cmd
 COPY pkg ./pkg
 COPY web ./web
 COPY internal ./internal
+COPY VERSION ./VERSION
 COPY main.go ./main.go
 
 # Build the Go app with optimizations
